@@ -823,6 +823,10 @@ pub async fn run_tui(
     // cannot abort startup or leave a detached worker enabling raw mode later.
     enable_raw_mode().context("Failed to enable raw mode")?;
 
+    // Keep the composer caret steady for the whole TUI run; restored on
+    // teardown. Idempotent, so mode recovery can re-issue it safely.
+    let _ = suppress_cursor_blink(&mut io::stdout());
+
     #[cfg(target_os = "windows")]
     enable_windows_ime_console_mode();
 
@@ -1406,6 +1410,9 @@ pub async fn run_tui(
         disable_bracketed_paste_mode(terminal.backend_mut());
     }
     terminal.show_cursor()?;
+    // Hand the terminal back its own blink preference before shutdown
+    // messages print; best effort, never blocks the teardown path.
+    let _ = restore_cursor_blink(terminal.backend_mut());
     drop(terminal);
 
     // Back on the primary screen, so this is somewhere the user can actually

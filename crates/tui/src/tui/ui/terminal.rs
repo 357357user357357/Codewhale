@@ -220,6 +220,20 @@ pub(crate) fn enter_alt_screen<W: Write>(writer: &mut W) -> io::Result<()> {
     Ok(())
 }
 
+/// Suppress the terminal's cursor blink (DEC private mode `?12`) while the
+/// TUI is running. The composer shows the terminal cursor, and every frame
+/// re-positions it with `show_cursor`, which resets the blink phase and
+/// renders as an irregular flicker. Restored by [`restore_cursor_blink`].
+pub(crate) fn suppress_cursor_blink<W: Write>(writer: &mut W) -> io::Result<()> {
+    writer.write_all(b"\x1b[?12l").and_then(|()| writer.flush())
+}
+
+/// Restore the terminal's own cursor-blink preference (DEC private mode
+/// `?12`); the counterpart of [`suppress_cursor_blink`]. Best effort.
+pub(crate) fn restore_cursor_blink<W: Write>(writer: &mut W) -> io::Result<()> {
+    writer.write_all(b"\x1b[?12h").and_then(|()| writer.flush())
+}
+
 /// Leave the alternate screen; the counterpart of [`enter_alt_screen`].
 pub(crate) fn leave_alt_screen<W: Write>(writer: &mut W) -> io::Result<()> {
     if crate::tui::mark::kitty_graphics_supported() {
@@ -488,6 +502,8 @@ pub(crate) fn resume_terminal(
     // Resume from the quiet/focused state and wait for a real FocusLost.
     crate::tui::notifications::set_terminal_focused(true);
     enable_raw_mode()?;
+    // Mode recovery can reset terminal state; re-issue the steady caret.
+    let _ = suppress_cursor_blink(terminal.backend_mut());
     if use_alt_screen {
         enter_alt_screen(terminal.backend_mut())?;
         // Re-entering alt-screen after mode recovery — suppress verbose
