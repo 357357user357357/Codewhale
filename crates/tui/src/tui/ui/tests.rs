@@ -213,6 +213,7 @@ fn frame_cursor_is_hidden_during_diff_then_positioned_before_reveal() {
     frame::prepare_frame_cursor(&mut terminal).unwrap();
     frame::finish_frame_cursor(&mut terminal, Some((17, 9))).unwrap();
 
+    #[cfg(windows)]
     assert_eq!(
         terminal.backend().operations,
         [
@@ -221,6 +222,15 @@ fn frame_cursor_is_hidden_during_diff_then_positioned_before_reveal() {
             CursorOperation::Show,
         ],
         "the IME must never observe a visible stale or intermediate cursor (#5023)"
+    );
+    #[cfg(not(windows))]
+    assert_eq!(
+        terminal.backend().operations,
+        [
+            CursorOperation::Position(Position::new(17, 9)),
+            CursorOperation::Show,
+        ],
+        "outside Windows the caret stays visible through the diff; toggling it per frame reads as flicker"
     );
     assert!(terminal.backend().inner.cursor_visible());
     terminal
@@ -467,9 +477,15 @@ fn cjk_composer_cursor_and_mouse_geometry_agree_in_compact_and_wide_frames() {
             .draw(|frame| first_cursor = super::frame::render(frame, &mut app, &config))
             .unwrap();
         let first_cursor = first_cursor.expect("active composer must expose its cursor");
+        #[cfg(windows)]
         assert!(
             !terminal.backend().cursor_visible(),
             "the caret stays hidden until the completed frame is positioned"
+        );
+        #[cfg(not(windows))]
+        assert!(
+            terminal.backend().cursor_visible(),
+            "outside Windows the caret stays visible through the diff instead of toggling per frame"
         );
 
         let inner = app

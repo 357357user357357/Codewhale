@@ -2026,17 +2026,30 @@ pub(crate) fn render(f: &mut Frame, app: &mut App, _config: &Config) -> Option<(
     cursor_pos
 }
 
-/// Hide the real terminal caret before ratatui applies a frame diff.
+/// Keep the terminal caret stable across a frame diff (#5023, caret flicker).
 ///
-/// A diff moves the terminal cursor through every changed run. Electron/xterm
-/// IME bridges (notably Tabby on Windows, #5023) can observe those transient
-/// positions even though the final frame is correct, which makes the native
-/// candidate window jump around the screen. Keep the caret hidden for the
-/// whole diff and pair this with [`finish_frame_cursor`] after the draw.
+/// Windows/Tabby IME bridges observe the transient cursor positions a diff
+/// produces (#5023), so on Windows the caret is hidden for the whole diff and
+/// [`finish_frame_cursor`] reveals it after the draw. That per-frame
+/// hide/show cycle is also what reads as caret flicker whenever frames
+/// animate (spinner, streaming, hover redraws): toggling visibility at frame
+/// rate is indistinguishable from blinking. Elsewhere the caret therefore
+/// stays visible through the diff — frames run inside DEC 2026 synchronized
+/// updates, so the terminal paints only the completed frame — and the single
+/// real transition (a frame with no composer caret) hides it in
+/// [`finish_frame_cursor`].
 pub(super) fn prepare_frame_cursor<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
 ) -> std::result::Result<(), B::Error> {
-    terminal.hide_cursor()
+    #[cfg(windows)]
+    {
+        terminal.hide_cursor()?;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = terminal;
+    }
+    Ok(())
 }
 
 /// Restore the composer caret in IME-safe order: position first, reveal last.
@@ -2053,6 +2066,11 @@ pub(super) fn finish_frame_cursor<B: ratatui::backend::Backend>(
     if let Some(cursor_pos) = cursor_pos {
         terminal.set_cursor_position(cursor_pos)?;
         terminal.show_cursor()?;
+    } else {
+        // Windows hid the caret in [`prepare_frame_cursor`]; elsewhere this
+        // is the only legitimate visibility transition, so hide exactly here.
+        #[cfg(not(windows))]
+        terminal.hide_cursor()?;
     }
     Ok(())
 }
