@@ -474,7 +474,15 @@ fn cjk_composer_cursor_and_mouse_geometry_agree_in_compact_and_wide_frames() {
         frame::prepare_frame_cursor(&mut terminal).unwrap();
         let mut first_cursor = None;
         terminal
-            .draw(|frame| first_cursor = super::frame::render(frame, &mut app, &config))
+            .draw(|frame| {
+                first_cursor = super::frame::render(frame, &mut app, &config);
+                // Mirror production (`draw_frame`): outside Windows the caret
+                // is positioned in-frame so ratatui never auto-hides it.
+                #[cfg(not(windows))]
+                if let Some((x, y)) = first_cursor {
+                    frame.set_cursor_position(ratatui::layout::Position::new(x, y));
+                }
+            })
             .unwrap();
         let first_cursor = first_cursor.expect("active composer must expose its cursor");
         #[cfg(windows)]
@@ -485,7 +493,7 @@ fn cjk_composer_cursor_and_mouse_geometry_agree_in_compact_and_wide_frames() {
         #[cfg(not(windows))]
         assert!(
             terminal.backend().cursor_visible(),
-            "outside Windows the caret stays visible through the diff instead of toggling per frame"
+            "outside Windows the caret is positioned in-frame and revealed after the diff"
         );
 
         let inner = app
@@ -530,12 +538,23 @@ fn cjk_composer_cursor_and_mouse_geometry_agree_in_compact_and_wide_frames() {
         frame::prepare_frame_cursor(&mut terminal).unwrap();
         let mut second_cursor = None;
         terminal
-            .draw(|frame| second_cursor = super::frame::render(frame, &mut app, &config))
+            .draw(|frame| {
+                second_cursor = super::frame::render(frame, &mut app, &config);
+                #[cfg(not(windows))]
+                if let Some((x, y)) = second_cursor {
+                    frame.set_cursor_position(ratatui::layout::Position::new(x, y));
+                }
+            })
             .unwrap();
         assert_eq!(
             second_cursor,
             Some(first_cursor),
             "{width}x{height}: identical CJK frames must keep stable IME geometry"
+        );
+        #[cfg(not(windows))]
+        assert!(
+            terminal.backend().cursor_visible(),
+            "{width}x{height}: the caret stays visible through the diff instead of toggling per frame"
         );
 
         assert!(handle_composer_mouse(

@@ -2125,7 +2125,22 @@ pub(crate) fn draw_app_frame_inner(
             terminal.clear()?;
         }
         let mut cursor_pos = None;
-        terminal.draw(|f| cursor_pos = render(f, app, config))?;
+        terminal.draw(|f| {
+            cursor_pos = render(f, app, config);
+            // Outside Windows the caret must not toggle per frame (flicker,
+            // #5023): a frame whose closure leaves the cursor position unset
+            // makes ratatui call `hide_cursor()` unconditionally, so every
+            // frame would emit a Hide+Show pair the terminal renders as
+            // blinking during spinner/streaming/hover redraws. Positioning
+            // the caret in-frame routes the frame through ratatui's Some
+            // branch instead, which only re-asserts Show on an already
+            // visible caret — visually a no-op, and the one real transition
+            // (no composer caret) still hides exactly once.
+            #[cfg(not(windows))]
+            if let Some((x, y)) = cursor_pos {
+                f.set_cursor_position(ratatui::layout::Position::new(x, y));
+            }
+        })?;
         app.pet_watch.present(terminal.backend_mut())?;
         finish_frame_cursor(terminal, cursor_pos)?;
         Ok(())
